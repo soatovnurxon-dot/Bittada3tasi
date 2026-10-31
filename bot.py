@@ -1,22 +1,29 @@
 import asyncio
 import logging
+import os
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message
+from fastapi import FastAPI
+import uvicorn
 
-# BotFather'dan olgan tokeningizni shu yerga yozing
-TOKEN = "9019949541:AAHi0qY5dHHyZf4_Tl3f8z5CKO_JmXTIrkk"
-
-# 3 ta guruhning ID raqamlari (manfiy sonlar bilan boshlanadi)
-GROUP_IDS = [-1003018040083, -1002986742269,  -1002129889527]
+# Token va guruh ID'larini Render muhitidan o'qiymiz
+TOKEN = os.getenv("TOKEN")
+GROUP_IDS_STR = os.getenv("GROUP_IDS", "")
+GROUP_IDS = [int(gid.strip()) for gid in GROUP_IDS_STR.split(",") if gid.strip()]
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
+# FastAPI serverini yaratamiz
+app = FastAPI()
+
+@app.get("/")
+async def index():
+    return {"status": "Bot 24/7 ishlayapti!"}
+
 @dp.message(F.chat.type.in_({"group", "supergroup"}))
 async def sync_groups(message: Message):
-    # Agar xabar biz ko'rsatgan 3 ta guruhning biridan kelgan bo'lsa
     if message.chat.id in GROUP_IDS:
-        # Qolgan ikki guruhga xabarni nusxalaymiz
         for group_id in GROUP_IDS:
             if group_id != message.chat.id:
                 try:
@@ -28,12 +35,16 @@ async def sync_groups(message: Message):
                 except Exception as e:
                     logging.error(f"Xatolik {group_id} guruhga yuborishda: {e}")
 
-async def main():
+# FastAPI ishga tushganda botni fon rejimida (background task) ishga tushiramiz
+@app.on_event("startup")
+async def startup_event():
     logging.basicConfig(level=logging.INFO)
-    print("Sinxronizatsiya boti ishga tushdi...")
-    # Eski xabarlarni tashlab yuborib, yangilaridan boshlash
     await bot.delete_webhook(drop_pending_updates=True)
-    await dp.start_polling(bot)
+    # Botni FastAPI ichida fon vazifasi sifatida yurgizamiz
+    asyncio.create_task(dp.start_polling(bot))
+    print("Sinxronizatsiya boti ishga tushdi...")
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    port = int(os.environ.get("PORT", 10000))
+    # Uvicorn endi asosiy jarayon bo'lib, portni darhol ochadi
+    uvicorn.run(app, host="0.0.0.0", port=port)
